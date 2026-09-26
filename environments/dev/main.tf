@@ -37,3 +37,35 @@ module "compute" {
     "https://www.googleapis.com/auth/trace.append"
   ]
 }
+
+
+module "networking" {
+  source = "../../modules/networking"
+
+  project_id   = var.project_id
+  region       = var.region
+  network_name = "default"
+
+  firewall_name = "allow-web"
+
+  firewall_ports = [
+    "80",
+    "443",
+    "3000",
+    "5173",
+    "9090",
+    "8080",
+    "8081",
+    "8082"
+  ]
+
+  source_ranges = [
+    "0.0.0.0/0"
+  ]
+
+  target_tags = [
+    "http-server"
+  ]
+
+  address_name = "devops-lab"
+}
