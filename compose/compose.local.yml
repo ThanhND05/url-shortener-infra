@@ -1,0 +1,14 @@
+services:
+  app:
+    build:
+      context: ../../url_shortener_be
+    ports:
+      - 127.0.0.1:8081:8081
+  frontend:
+    build:
+      context: ../../url_shortener_fe
+      args:
+        VITE_API_BASE_URL: /api/v1/
+  kafka:
+    ports:
+      - 127.0.0.1:19092:19092

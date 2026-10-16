@@ -1,0 +1,26 @@
+services:
+  restore-redis:
+    image: redis:7.2-alpine
+  restore-app:
+    extends:
+      file: compose.yml
+      service: app
+    environment:
+      DB_NAME: ${RESTORE_DB_NAME:-restore_lab_01}
+      REDIS_HOST: restore-redis
+      SPRING_KAFKA_LISTENER_AUTO_STARTUP: "false"
+    ports:
+      - 127.0.0.1:18080:8080
+      - 127.0.0.1:18081:8081
+    depends_on:
+      restore-redis:
+        condition: service_started
+  restore-frontend:
+    image: ${FRONTEND_IMAGE:?required}
+    ports:
+      - 127.0.0.1:18000:80
+    volumes:
+      - ./nginx.restore.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      restore-app:
+        condition: service_healthy

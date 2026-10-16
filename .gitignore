@@ -91,3 +91,13 @@ terraform-state-backup.json
 
 .DS_Store
 Thumbs.db
+
+# Per-server lab state and test credentials
+.smoke*.json
+smoke-vm.json
+release.env
+candidate.env
+releases/
+backups/
+__pycache__/
+.docker-check/

@@ -1,0 +1,4 @@
+region        = "ap-southeast-1"
+admin_cidr    = "203.0.113.10/32" # replace with your actual public IPv4
+key_name      = "url-shortener-lab" # existing EC2 key pair in this region
+instance_type = "t3.medium"

@@ -1,0 +1,19 @@
+groups:
+  - name: application
+    rules:
+      - alert: BackendUnavailable
+        expr: up{job="url-shortener"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Backend metrics endpoint is unavailable
+      - alert: HighServerErrorRate
+        expr: |
+          sum(rate(http_server_requests_seconds_count{job="url-shortener",status=~"5.."}[5m]))
+          / clamp_min(sum(rate(http_server_requests_seconds_count{job="url-shortener"}[5m])), 0.01) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: More than 5 percent of requests return server errors

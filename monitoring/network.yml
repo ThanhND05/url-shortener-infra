@@ -1,0 +1,5 @@
+name: urlshortener-monitoring
+networks:
+  default:
+    external: true
+    name: urlshortener_default
