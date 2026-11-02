@@ -10,7 +10,7 @@ terraform {
 
 variable "region" {
   type    = string
-  default = "ap-southeast-1"
+  default = "ap-southeast-2"
 }
 variable "admin_cidr" {
   type = string
@@ -21,8 +21,8 @@ variable "admin_cidr" {
 }
 variable "key_name" { type = string }
 variable "instance_type" {
-  type    = string
-  default = "t3.medium"
+  type        = string
+  description = "Choose an eligible x86_64 instance type in the target region."
 }
 
 provider "aws" {
@@ -104,8 +104,11 @@ resource "aws_instance" "lab" {
   metadata_options {
     http_tokens = "required"
   }
-  credit_specification {
-    cpu_credits = "standard"
+  dynamic "credit_specification" {
+    for_each = can(regex("^t[0-9][a-z]*\\.", var.instance_type)) ? [1] : []
+    content {
+      cpu_credits = "standard"
+    }
   }
   root_block_device {
     volume_size           = 30
@@ -115,5 +118,8 @@ resource "aws_instance" "lab" {
   }
   depends_on = [aws_route_table_association.public]
 }
-output "public_ip" { value = aws_instance.lab.public_ip }
+output "public_ip" {
+  value      = var.enable_elastic_ip ? aws_eip.lab[0].public_ip : aws_instance.lab.public_ip
+  depends_on = [aws_eip_association.lab]
+}
 output "instance_id" { value = aws_instance.lab.id }
