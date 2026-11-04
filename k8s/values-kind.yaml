@@ -1,0 +1,4 @@
+storageClass: standard
+publicUrl: http://localhost:18080
+frontend:
+  serviceType: ClusterIP

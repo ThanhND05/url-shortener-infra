@@ -1,0 +1,18 @@
+# Image refs must be supplied in a private release values file.
+backendImage: ""
+frontendImage: ""
+publicUrl: http://localhost:18080
+existingSecret: app-secrets
+imagePullSecrets: []
+storageClass: standard
+frontend:
+  replicas: 1
+  tls: false
+  serviceType: ClusterIP
+  loadBalancerClass: ""
+  annotations: {}
+  sourceRanges: []
+data:
+  postgresSize: 5Gi
+  redisSize: 1Gi
+  kafkaSize: 5Gi

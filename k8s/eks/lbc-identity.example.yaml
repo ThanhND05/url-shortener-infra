@@ -1,0 +1,12 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: urlshortener-intern
+  region: ap-southeast-2
+iam:
+  podIdentityAssociations:
+    - namespace: kube-system
+      serviceAccountName: aws-load-balancer-controller
+      createServiceAccount: true
+      permissionPolicyARNs:
+        - arn:aws:iam::YOUR_ACCOUNT_ID:policy/UrlShortenerLabLoadBalancerController

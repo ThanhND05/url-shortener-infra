@@ -54,7 +54,9 @@ Chạy `init-env.sh` một lần, các lần sau sửa `.env` đang có. Không 
 | Backup/restore | `scripts/backup.sh`, `restore.sh`, `compose/compose.restore.yml` |
 | AWS | `environments/aws-lab/`, `bootstrap/` |
 | CD AWS | Bật mẫu `workflow-examples/deploy-lab.yml` sau khi cấu hình Environment/OIDC/SSH |
-| Mở rộng sau cùng | `k8s/`, backup S3 |
+| Kubernetes → EKS mức intern | [Guide đầy đủ](docs/kubernetes-eks-intern-guide.md), `charts/url-shortener/`, `k8s/eks/`, `scripts/k8s-lab-env.sh` |
+| kind bridge cũ | [Bài backend/frontend + data Compose](docs/kubernetes-vmware-guide.md), không chạy cùng namespace với chart mới |
+| Mở rộng vận hành | Backup S3 |
 
 `.github/workflows/terraform-ci.yml` hiện format-check toàn repo và init/validate môi trường GCP; mẫu validate AWS chưa được bật tự động. Chạy `terraform fmt`, `init -backend=false`, `validate` cho `environments/aws-lab` trước khi commit và bổ sung CI AWS khi đến bài đó. Không dùng chung state GCP/AWS.
 

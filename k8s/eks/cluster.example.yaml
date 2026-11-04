@@ -1,0 +1,31 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+metadata:
+  name: urlshortener-intern
+  region: ap-southeast-2
+  version: REPLACE_WITH_STANDARD_SUPPORT_VERSION
+accessConfig:
+  authenticationMode: API_AND_CONFIG_MAP
+vpc:
+  cidr: 10.70.0.0/16
+  nat:
+    gateway: Disable
+  clusterEndpoints:
+    publicAccess: true
+    privateAccess: true
+  publicAccessCIDRs: [REPLACE_WITH_VMWARE_EGRESS_PUBLIC_IPV4/32]
+managedNodeGroups:
+  - name: intern-workers
+    instanceType: t3.large
+    desiredCapacity: 2
+    minSize: 2
+    maxSize: 2
+    volumeSize: 30
+    privateNetworking: false
+    ssh:
+      allow: false
+    tags:
+      Project: url-shortener
+      Environment: eks-intern
+addons:
+  - name: eks-pod-identity-agent
