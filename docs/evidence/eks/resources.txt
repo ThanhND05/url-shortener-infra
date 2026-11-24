@@ -1,0 +1,18 @@
+NAME                            READY   STATUS    RESTARTS      AGE   IP             NODE                                              NOMINATED NODE   READINESS GATES
+pod/app-7797d766fb-gpswp        1/1     Running   2 (47m ago)   40h   10.70.87.158   ip-10-70-93-152.ap-southeast-2.compute.internal   <none>           <none>
+pod/frontend-6597997848-c4zrc   1/1     Running   0             40h   10.70.66.148   ip-10-70-93-152.ap-southeast-2.compute.internal   <none>           <none>
+pod/kafka-0                     1/1     Running   0             40h   10.70.51.14    ip-10-70-41-10.ap-southeast-2.compute.internal    <none>           <none>
+pod/postgres-0                  1/1     Running   0             40h   10.70.47.231   ip-10-70-41-10.ap-southeast-2.compute.internal    <none>           <none>
+pod/redis-0                     1/1     Running   0             40h   10.70.33.60    ip-10-70-41-10.ap-southeast-2.compute.internal    <none>           <none>
+
+NAME                                    STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   VOLUMEATTRIBUTESCLASS   AGE   VOLUMEMODE
+persistentvolumeclaim/data-kafka-0      Bound    pvc-52cdb777-197f-436d-98d2-653427c720f9   5Gi        RWO            gp3-lab        <unset>                 12d   Filesystem
+persistentvolumeclaim/data-postgres-0   Bound    pvc-c7f26e66-bef1-42a9-a844-acdf7e034037   5Gi        RWO            gp3-lab        <unset>                 12d   Filesystem
+persistentvolumeclaim/data-redis-0      Bound    pvc-9feb4cac-379c-4c92-a260-b83f5c6a86a7   1Gi        RWO            gp3-lab        <unset>                 12d   Filesystem
+
+NAME               TYPE           CLUSTER-IP       EXTERNAL-IP   PORT(S)             AGE   SELECTOR
+service/app        ClusterIP      172.20.170.122   <none>        8080/TCP,8081/TCP   12d   app=backend
+service/frontend   LoadBalancer   172.20.127.99    <pending>     80:31796/TCP        12d   app=frontend
+service/kafka      ClusterIP      None             <none>        9092/TCP,9093/TCP   12d   app=kafka
+service/postgres   ClusterIP      None             <none>        5432/TCP            12d   app=postgres
+service/redis      ClusterIP      None             <none>        6379/TCP            12d   app=redis
