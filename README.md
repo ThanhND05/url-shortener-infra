@@ -1,41 +1,94 @@
 # URL Shortener Infrastructure
 
-[Project portfolio / architecture, results and limitations](docs/PORTFOLIO.md)
+Cấu hình triển khai và vận hành URL Shortener từ Ubuntu trên VMware đến AWS EC2 và Amazon EKS. Dự án thực hành Docker, CI, Infrastructure as Code, Kubernetes, monitoring và troubleshooting trên ứng dụng Spring Boot/React với PostgreSQL, Redis và Kafka.
 
-Repo chính thức cho cấu hình triển khai và vận hành URL Shortener: Ubuntu Server trên VMware trước, EC2 sau. Thư mục `devops-lab-kit` ở workspace cũ chỉ là bản mẫu, không cần copy nó sang VM.
+[Portfolio và kết quả thực hành](docs/PORTFOLIO.md) · [Backend](https://github.com/ThanhND05/url_shortener_be) · [Frontend](https://github.com/ThanhND05/url_shortener_fe)
 
-## Cấu trúc
+## Kiến trúc và phạm vi
 
-```text
-projects/
-├── url_shortener_be/
-├── url_shortener_fe/
-└── url-shortener-infra/
-    ├── compose/
-    ├── scripts/
-    ├── monitoring/
-    ├── environments/
-    │   ├── dev/         # GCP hiện có
-    │   └── aws-lab/     # AWS lab, state riêng
-    ├── modules/         # GCP hiện có
-    ├── bootstrap/
-    ├── charts/
-    └── .github/workflows/
+```mermaid
+flowchart LR
+    Source[Backend / Frontend repositories] --> CI[GitHub Actions: checks, build, Trivy]
+    CI --> Registry[GHCR image releases]
+    Registry --> Compose[Docker Compose: VMware / EC2]
+    Terraform[Terraform: VPC, subnet, routing, Security Group] --> Host[EC2 host]
+    Host --> Compose
+    Registry --> Chart[Helm chart]
+    Chart --> Kind[kind on VMware]
+    Chart --> EKS[Amazon EKS]
 ```
 
-## Cách làm việc
+Terraform tạo hạ tầng EC2. Cluster EKS được tạo bằng **eksctl**, ứng dụng được triển khai bằng **Helm**. Các môi trường Compose, kind và EKS dùng database riêng trong luồng thực hành hiện tại.
 
-1. Sửa source/config trên Windows trong repo tương ứng, commit/push lên GitHub.
-2. VM clone ba repo một lần; các lần sau `git pull --ff-only` đúng branch.
-3. Build/run ở repo infra. Đến giai đoạn CI, pull image GHCR thay cho build source trên server.
-4. `.env`, fixture `.smoke.json`, backup và release manifest là dữ liệu riêng server, không commit.
+| Thành phần | Phạm vi |
+|---|---|
+| VMware / EC2 | Docker Compose và Nginx reverse proxy |
+| CI ứng dụng | Kiểm tra ứng dụng, build image, scan Trivy và publish GHCR |
+| CD EC2 | Workflow kích hoạt thủ công, deploy qua SSH, health/smoke và logic phục hồi release |
+| Kubernetes | Helm chart cho app và data services, probes, ConfigMap, Secret references và PVC |
+| EKS | Managed node group, EBS CSI và Pod Identity; deploy Helm từ VMware |
+| Quan sát | Prometheus, Grafana và bài kiểm tra redirect bằng k6 |
 
-Ví dụ trên **Ubuntu VM**, sau khi đã clone repo và áp dụng profile/security/factory backend theo hướng dẫn:
+Đây là **personal lab**, mỗi data service có một replica. EKS hiện truy cập qua **port-forward và SSH tunnel**; AWS từ chối tạo NLB ở cấp tài khoản, nên public NLB/TLS chưa hoàn thành. Incident và bằng chứng nằm trong portfolio.
+
+[Report k6 VMware](docs/evidence/k6-vm.json) ghi nhận 3.192 request trong khoảng 2 phút, tối đa 10 VU, p95 khoảng **9,89 ms**, HTTP failure **0%**. Đây là phép đo endpoint redirect không follow destination trong lab, không phải benchmark EKS hoặc công suất tối đa.
+
+## Cấu trúc repository
+
+```text
+url-shortener-infra/
+├── .github/workflows/        # Workflow thật của repo infra
+├── bootstrap/               # Chuẩn bị EC2 host và host Nginx
+├── charts/url-shortener/    # Helm chart app và data services lab
+├── compose/                 # Compose, overrides và frontend Nginx
+├── docs/                    # Guide, portfolio, incident và evidence
+├── environments/
+│   ├── aws-lab/             # Terraform cho EC2 lab
+│   └── dev/                 # Cấu hình GCP từ giai đoạn trước
+├── k8s/                     # kind, EKS, StorageClass và values
+├── load-tests/              # Workload k6
+├── modules/                 # Terraform modules của giai đoạn GCP
+├── monitoring/              # Prometheus / Grafana
+├── scripts/                 # Env, smoke, deploy, backup và restore
+└── .env.example             # Biến cấu hình, không có secret thật
+```
+
+Workflow và backend profile được duy trì trực tiếp trong repo sử dụng chúng. Các bản copy cũ trong `workflow-examples/` và `backend-examples/` đã được bỏ.
+
+## Tài liệu và source chính
+
+| Mục tiêu | Tài liệu / source |
+|---|---|
+| Xem dự án và kết quả | [Portfolio](docs/PORTFOLIO.md) |
+| Deploy toàn stack trên kind rồi EKS | [Guide Kubernetes → EKS](docs/kubernetes-eks-intern-guide.md) |
+| Thiết lập CD EC2 | [Guide CD AWS](docs/aws-cd-guide.md) |
+| Cấu hình EC2 | [Terraform AWS lab](environments/aws-lab/) và [bootstrap](bootstrap/) |
+| Cấu hình Kubernetes | [Helm chart](charts/url-shortener/) |
+| Monitoring / workload | [Monitoring](monitoring/) và [k6 script](load-tests/redirect.js) |
+| Phạm vi validation | [Compose/scripts](docs/VALIDATION.md) và [Kubernetes](docs/K8S_VALIDATION.md) |
+
+[Bài kind bridge cũ](docs/kubernetes-vmware-guide.md) giữ data services ở Compose; luồng Helm/EKS mới chạy cả stack trong Kubernetes. Chọn một bài phù hợp, không cần chạy cả hai cùng lúc.
+
+## Quick start trên Ubuntu VMware
+
+Cần Docker Engine và Compose plugin. Clone BE, FE và infra thành ba thư mục cạnh nhau để build context hoạt động:
 
 ```bash
-cd ~/projects/url-shortener-infra
+mkdir -p ~/projects
+cd ~/projects
+git clone https://github.com/ThanhND05/url_shortener_be.git
+git clone https://github.com/ThanhND05/url_shortener_fe.git
+git clone https://github.com/ThanhND05/url-shortener-infra.git
+cd url-shortener-infra
 bash scripts/init-env.sh
-# Sửa .env: VM IP, WEB_BIND=0.0.0.0 và các URL có port 8080.
+nano .env
+```
+
+`init-env.sh` chỉ chạy một lần và từ chối ghi đè `.env` đã có. Backend image cần chứa profile `src/main/resources/application-lab.yaml` trong repo backend.
+
+Trong `.env`, đặt `WEB_BIND=0.0.0.0`, `WEB_PORT=8080` nếu muốn mở từ Windows qua IP VM. Cập nhật `FRONTEND_URL`, `ALLOWED_ORIGINS` và `VNPAY_RETURN_URL` theo cùng địa chỉ, ví dụ `http://192.168.40.100:8080` và callback `/api/v1/billing/vnpay-return`. Thay IP bằng địa chỉ VM thực tế, giữ các password đã sinh.
+
+```bash
 docker compose --env-file .env -f compose/compose.yml -f compose/compose.vm.yml config --quiet
 docker compose --env-file .env -f compose/compose.yml -f compose/compose.vm.yml build
 docker compose --env-file .env -f compose/compose.yml -f compose/compose.vm.yml up -d --wait --wait-timeout 300
@@ -43,30 +96,63 @@ bash scripts/smoke.sh init
 bash scripts/smoke.sh run
 ```
 
-Chạy `init-env.sh` một lần, các lần sau sửa `.env` đang có. Không xóa env/volume để cập nhật code.
+Mở `http://<VM_IP>:8080`. Smoke `init` tạo tài khoản/link và fixture một lần; các lần sau chỉ `run`. Môi trường có DB riêng cần fixture riêng như guide Kubernetes hướng dẫn.
 
-## File dùng theo giai đoạn
+Khi chuyển sang image GHCR đã qua CI, dùng manifest chứa digest và pull/deploy thay cho build source trên server. [Script deploy](scripts/deploy.sh) yêu cầu `.env` và fixture smoke hợp lệ; xem guide CD để thiết lập release đầu và quyền registry.
 
-| Giai đoạn | File |
+## Workflow trên GitHub
+
+| Repository | Workflow | Cách chạy |
+|---|---|---|
+| Backend | [backend-ci.yml](https://github.com/ThanhND05/url_shortener_be/blob/main/.github/workflows/backend-ci.yml) | Theo trigger của repo backend |
+| Frontend | [frontend-ci.yml](https://github.com/ThanhND05/url_shortener_fe/blob/main/.github/workflows/frontend-ci.yml) | Theo trigger của repo frontend |
+| Infra | [deploy-lab.yml](.github/workflows/deploy-lab.yml) | Run workflow trên main; cần Environment aws-lab, IAM keys và SSH secrets |
+| Infra | [k8s-chart-ci.yml](.github/workflows/k8s-chart-ci.yml) | Lint/render chart khi đường dẫn liên quan thay đổi |
+| Infra | [terraform-ci.yml](.github/workflows/terraform-ci.yml) | Format-check Terraform toàn repo; init/validate môi trường GCP environments/dev |
+
+Terraform AWS hiện cần kiểm tra riêng trong `environments/aws-lab`: `terraform fmt -check`, `terraform init -backend=false`, `terraform validate`. Workflow Terraform hiện có chưa validate AWS. CD EC2 không deploy EKS; luồng EKS hiện chạy Helm thủ công từ VMware.
+
+## Đồng bộ Windows và VMware qua Git
+
+GitHub là nơi trao đổi code giữa hai máy. Sửa/copy file trên VMware chỉ thay đổi filesystem của VM; Windows nhận được sau khi file đã **add → commit → push**, rồi Windows pull đúng repository/branch.
+
+```text
+Windows hoặc VMware: sửa file → git add → git commit → git push
+Máy còn lại:                                      git pull --ff-only
+```
+
+| Đường dẫn | Đồng bộ qua Git? |
 |---|---|
-| Chuẩn bị backend | Profile chính tại `url_shortener_be/src/main/resources/application-lab.yaml` trong repo backend |
-| Chạy VMware | `compose/compose.yml`, `compose/compose.vm.yml`, `compose/nginx.conf` |
-| Kiểm tra/deploy | `scripts/smoke.sh`, `deploy.sh`, `rollback.sh` |
-| CI ứng dụng | `.github/workflows/backend-ci.yml` trong repo backend và `.github/workflows/frontend-ci.yml` trong repo frontend |
-| Monitoring/benchmark | `monitoring/`, `load-tests/` |
-| Backup/restore | `scripts/backup.sh`, `restore.sh`, `compose/compose.restore.yml` |
-| AWS | `environments/aws-lab/`, `bootstrap/` |
-| CD AWS | `.github/workflows/deploy-lab.yml`; cấu hình Environment, IAM access keys và SSH trước khi Run workflow |
-| Kubernetes → EKS mức intern | [Guide đầy đủ](docs/kubernetes-eks-intern-guide.md), `charts/url-shortener/`, `k8s/eks/`, `scripts/k8s-lab-env.sh` |
-| kind bridge cũ | [Bài backend/frontend + data Compose](docs/kubernetes-vmware-guide.md), không chạy cùng namespace với chart mới |
-| Mở rộng vận hành | Backup S3 |
+| .github/workflows/, charts/, scripts/, docs | Có, khi đã commit/push |
+| .env.example, *.tfvars.example, mẫu EKS trong k8s/eks/ | Có; dùng để dựng môi trường |
+| .lab/, .env, release.env, candidate.env, .smoke*.json, backups | Không; được ignore và giữ riêng từng môi trường |
+| .terraform/, state, plan, private keys | Không |
 
-`.github/workflows/terraform-ci.yml` hiện format-check toàn repo và init/validate môi trường GCP; mẫu validate AWS chưa được bật tự động. Chạy `terraform fmt`, `init -backend=false`, `validate` cho `environments/aws-lab` trước khi commit và bổ sung CI AWS khi đến bài đó. Không dùng chung state GCP/AWS.
+**Dấu chấm đầu tên không quyết định việc Git theo dõi file.** `.github/` được commit bình thường; `.lab/` bị bỏ qua bởi quy tắc cụ thể trong `.gitignore`.
 
-## Nếu đã chạy từ kit trên VM
+Ví dụ sửa workflow trên VMware:
 
-Giữ thư mục kit cũ và volumes đang có. Clone repo infra cạnh hai repo ứng dụng, copy **chỉ** file riêng server cần giữ (`.env`, `.smoke.json`, manifest/release history) từ kit sang infra; kiểm tra diff config trước khi dùng. Cả hai Compose dùng project name `urlshortener`, vì vậy cùng trỏ đến named volumes; không chạy hai bản cấu hình cùng lúc, không `down -v`.
+```bash
+git status --short
+git add .github/workflows/k8s-chart-ci.yml
+git diff --cached
+git commit -m "ci: update Kubernetes chart checks"
+git push
+```
 
-Với VM chưa có kit/ứng dụng chạy: chỉ cần clone repo infra, không có bước SCP kit.
+Sau đó trên Windows, vào repo infra tương ứng rồi `git pull --ff-only`. Nếu có thay đổi local hoặc hai máy tạo commit khác nhau, xử lý chúng trước khi pull; không reset để làm mất phần chưa lưu. Mỗi repo BE/FE/infra có lịch sử Git riêng.
 
-Hướng dẫn chi tiết ở workspace: `DEVOPS_IMPLEMENTATION_GUIDE_URL_SHORTENER.md`. Phạm vi kiểm chứng: [docs/VALIDATION.md](docs/VALIDATION.md).
+Kiểm tra file được theo dõi hay bị ignore:
+
+```bash
+git ls-files .github/workflows/
+git check-ignore -v .lab/eks/release.yaml
+```
+
+Muốn giữ thêm bản dữ liệu riêng trên Windows thì copy bằng SCP hoặc cơ chế backup riêng. Git pull không mang `.lab/` và secrets từ VMware về Windows.
+
+## Dữ liệu và vòng đời lab
+
+`docker compose stop` giữ container/volumes. Xóa Pod Kubernetes không tự xóa PVC, nhưng xóa cluster kind hoặc PVC có thể làm mất dữ liệu; EBS StorageClass của lab có reclaim policy `Delete`. Giữ backup đã kiểm tra bên ngoài cluster trước teardown.
+
+Cloud resources tiếp tục có phí/tiêu credit khi tắt Windows/VMware. Scale EKS worker về 0 chỉ giảm phần compute worker; khi kết thúc cần dọn cluster và rà EBS/load balancer cùng các tài nguyên liên quan. Thứ tự backup và teardown nằm trong guide EKS.
