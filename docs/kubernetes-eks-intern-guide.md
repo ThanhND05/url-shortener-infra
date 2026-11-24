@@ -43,7 +43,7 @@ NLB làm cân bằng tải TCP, Nginx trong frontend làm reverse proxy `/api/` 
 ```powershell
 cd D:\privateProject\projects\url-shortener-infra
 git status --short
-git add charts k8s scripts/k8s-lab-env.sh docs/kubernetes-eks-intern-guide.md workflow-examples/k8s-chart-ci.yml .gitignore
+git add charts k8s scripts/k8s-lab-env.sh docs/kubernetes-eks-intern-guide.md .github/workflows/k8s-chart-ci.yml .gitignore
 git commit -m "feat: add intern Kubernetes and EKS lab"
 git push
 ```
@@ -499,6 +499,58 @@ kubectl get storageclass gp3-lab
 
 Chờ addon ACTIVE. Role cho EBS driver do eksctl tạo qua Pod Identity, trust service `pods.eks.amazonaws.com`, không trust GitHub. Node role phải có `eks-auth:AssumeRoleForPodIdentity` (managed worker policy phù hợp); agent phải hoạt động. [EKS Pod Identity](https://docs.aws.amazon.com/eks/latest/eksctl/pod-identity-associations.html).
 
+### 14.1. Nếu eksctl bị SCP chặn GetOpenIDConnectProvider
+
+Nếu lỗi ghi `iam:GetOpenIDConnectProvider ... explicit deny in a service control policy`, eksctl đang kiểm tra OIDC và bị giới hạn cấp tổ chức. Không tạo OIDC provider, không thêm AdministratorAccess để chữa. Có thể dùng API Pod Identity trực tiếp cho thao tác khác được phép; đây không phải cách vượt deny OIDC. Nếu CreateRole/PassRole/CreateAddon cũng bị SCP chặn thì dừng và giải quyết quyền tài khoản.
+
+**VMware**, tạo trust policy cho role riêng EBS driver:
+
+```bash
+cd ~/projects/url-shortener-infra
+cat > .lab/eks/ebs-pod-trust.json <<'JSON'
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Service": "pods.eks.amazonaws.com"},
+    "Action": ["sts:AssumeRole", "sts:TagSession"]
+  }]
+}
+JSON
+aws iam create-role --role-name UrlShortenerInternEbsPodRole \
+  --assume-role-policy-document file://.lab/eks/ebs-pod-trust.json
+```
+
+Chỉ đi tiếp khi tạo role thành công. Nếu role đã tồn tại từ lần chạy này, kiểm tra đúng trust/purpose rồi tái sử dụng, không sửa role dự án khác.
+
+```bash
+aws iam attach-role-policy --role-name UrlShortenerInternEbsPodRole \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy
+EBS_ROLE_ARN=$(aws iam get-role --role-name UrlShortenerInternEbsPodRole --query Role.Arn --output text)
+aws eks list-addons --cluster-name urlshortener-intern --region "$AWS_REGION"
+```
+
+Nếu danh sách chưa có `aws-ebs-csi-driver`:
+
+```bash
+aws eks create-addon --cluster-name urlshortener-intern --region "$AWS_REGION" \
+  --addon-name aws-ebs-csi-driver \
+  --pod-identity-associations "serviceAccount=ebs-csi-controller-sa,roleArn=$EBS_ROLE_ARN"
+```
+
+Nếu add-on đã tồn tại, dùng `aws eks update-addon` với các tham số cùng cluster/region/name/pod-identity-associations trên thay vì create. Không tạo association riêng trước create-addon để tránh xung đột ownership. Nếu role vừa tạo chưa propagate, đợi một lát rồi thử lại API sau khi đọc lỗi; không lặp vô hạn.
+
+```bash
+aws eks wait addon-active --cluster-name urlshortener-intern --region "$AWS_REGION" --addon-name aws-ebs-csi-driver
+kubectl -n kube-system rollout status deployment/ebs-csi-controller --timeout=300s
+kubectl apply -f k8s/eks/storage.yaml
+kubectl get storageclass gp3-lab
+```
+
+AWS API hỗ trợ gắn role vào add-on qua `--pod-identity-associations`; không dùng `--service-account-role-arn` vì đó là nhánh IRSA. [AWS CLI create-addon](https://docs.aws.amazon.com/cli/latest/reference/eks/create-addon.html).
+
+Role `UrlShortenerInternEbsPodRole` tạo bằng AWS CLI không thuộc stack eksctl; ghi vào danh sách cleanup. Chỉ detach policy/xóa role này sau khi EBS/PVC/add-on và association đã dọn xong, xác minh không dùng ở nơi khác.
+
 `gp3-lab` dùng `ebs.csi.aws.com`, mã hóa EBS, WaitForFirstConsumer. ReclaimPolicy Delete nghĩa **xóa PVC có thể xóa EBS và dữ liệu**, không coi PVC là backup. Volume chỉ attach trong AZ phù hợp; nếu một node hết tài nguyên có thể gặp lỗi scheduling/volume topology, đọc events.
 
 ## 15. Cài AWS Load Balancer Controller bằng Pod Identity
@@ -619,6 +671,32 @@ Nếu NLB_HOST rỗng, không đi tiếp; xem describe Service/LBC logs phần 2
 
 **Windows trình duyệt:** mở URL NLB, thử UI. `curl` từ VMware chỉ truy cập được nếu egress của VMware nằm trong sourceRanges. NLB không dùng Elastic IP EC2 cũ; URL thay khi tạo NLB mới.
 
+### 17.1. Nếu AWS chặn tạo load balancer cho tài khoản
+
+Nếu Service Events ghi `OperationNotPermitted: This AWS account currently does not support creating load balancers`, AWS đang từ chối khả năng tạo ELB của tài khoản. Đợi thêm, đổi Helm image hoặc cấp quyền IAM rộng hơn không tự giải quyết được thông báo này. Log chưa xác định đây là giới hạn Free Plan, trạng thái xác minh hay hạn chế khác. Liên hệ AWS Support về khả năng tạo Network Load Balancer trong đúng region; không tự nâng cấp plan để thử chữa.
+
+Để tiếp tục kiểm chứng ứng dụng EKS trước khi được hỗ trợ NLB, dùng port-forward. Cách này không tạo load balancer, chưa hoàn thành nghiệm thu public NLB/TLS. Service LoadBalancer có thể vẫn Pending và controller tiếp tục retry; port-forward chỉ là đường kiểm tra tạm, không làm hostname NLB xuất hiện. Helm lần trước có thể timeout vì chờ Service được cấp load balancer dù các Pod đã chạy.
+
+**VMware terminal A**, không chạy trùng port-forward kind trên cùng cổng:
+
+```bash
+kubectl --context urlshortener-eks -n urlshortener-eks get pods
+kubectl --context urlshortener-eks -n urlshortener-eks port-forward \
+  --address 127.0.0.1 service/frontend 18080:80
+```
+
+Giữ terminal A. **Windows PowerShell** mở tunnel đến VMware:
+
+```powershell
+ssh -L 18080:127.0.0.1:18080 thanh@192.168.40.100
+```
+
+Mở `http://localhost:18080`. Request được chuyển qua VMware tới API EKS và frontend Pod, không chuyển tới kind; context ở lệnh port-forward đã chỉ rõ EKS. Nếu VMware IP đổi thì sửa lệnh tunnel. Phải giữ cả hai cửa sổ hoạt động.
+
+Values EKS mặc định đang là `publicUrl: http://localhost:18080`, nên CORS đã khớp đường truy cập này. Nếu đã đổi publicUrl trước đó, đặt lại URL localhost trong `.lab/eks/values.yaml`; có thể patch ConfigMap tạm và restart app để kiểm tra, nhưng nhớ đồng bộ cấu hình Helm trước lần upgrade sau. Không dùng fixture kind cho DB EKS.
+
+Ở phần 18, thay `http://$NLB_HOST` bằng `http://127.0.0.1:18080` khi chạy smoke từ VMware. Giữ fixture riêng `.lab/eks/smoke`. Ghi bằng chứng đúng là app chạy trên EKS, truy cập qua port-forward; mục NLB còn bị giới hạn tài khoản.
+
 ## 18. Smoke EKS và kiểm tra dữ liệu
 
 **VMware**, tạo fixture riêng cho EKS:
@@ -668,13 +746,13 @@ CI app hiện tại vẫn build/test/scan/push digest. CI chart kiểm tra cấu
 
 ```powershell
 cd D:\privateProject\projects\url-shortener-infra
-Copy-Item workflow-examples\k8s-chart-ci.yml .github\workflows\k8s-chart-ci.yml
+# Workflow/profile đã có trong repo đích; review file hiện tại trong IDE.
 git add .github/workflows/k8s-chart-ci.yml
 git commit -m "ci: validate Kubernetes Helm chart"
 git push
 ```
 
-Nếu file đích đã có, so sánh trước khi copy để giữ thay đổi riêng. Merge main, xác nhận Actions xanh. Job lint/render chưa thay server-side admission và integration test; không gọi là end-to-end test của cluster.
+Workflow chuẩn đã có trong repo; mở review trực tiếp, không cần copy mẫu. Merge main, xác nhận Actions xanh. Job lint/render chưa thay server-side admission và integration test; không gọi là end-to-end test của cluster.
 
 Release mức intern trong guide này là **CI + Helm deploy do bạn chủ động chạy từ VMware**:
 
@@ -720,7 +798,121 @@ Terminal khác: `curl --fail http://127.0.0.1:18081/actuator/prometheus`. Không
 
 ## 22. Backup EKS trước khi dọn và nghiệm thu
 
-Làm lại phần 9 với context EKS, `NS=urlshortener-eks`, đường dẫn dump/checksum `.lab/eks/backups/`. Giữ dump, env tương ứng và fixture riêng ở nơi riêng tư ngoài cluster trước teardown. Một bản dump kiểm tra schema chưa chứng minh đầy đủ restore nghiệp vụ.
+Mục tiêu bước này: tạo bản backup PostgreSQL ra VMware, restore thử vào database riêng và lưu bằng chứng dự án. Chưa xóa cluster/PVC ở bước này. Với tài khoản đang bị chặn NLB, nghiệm thu UI/smoke qua port-forward và ghi rõ giới hạn đó.
+
+### 22.1. Chuẩn bị trên VMware
+
+Mở terminal SSH VMware mới; có thể giữ các cửa sổ port-forward đang dùng UI. Các lệnh Bash bên dưới chạy trong **cùng terminal VMware** để giữ các biến tên file/database:
+
+```bash
+cd ~/projects/url-shortener-infra
+kubectl config use-context urlshortener-eks
+kubectl -n urlshortener-eks get pods,pvc
+mkdir -p .lab/eks/backups docs/evidence/eks
+umask 077
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+DUMP="$PWD/.lab/eks/backups/postgres-$STAMP.dump"
+RESTORE_DB="restore_check_$(date -u +%Y%m%d%H%M%S)"
+```
+
+Cần `postgres-0` Ready và PVC Bound. Nếu credentials hết hạn, login lại profile nguồn như bài trước. Không cần truy cập NLB để exec backup. Tạm ngừng thao tác tạo/sửa link trên UI trong lúc so sánh dữ liệu; pg_dump tự tạo snapshot nhất quán của PostgreSQL, không phải snapshot đồng bộ với Kafka/Redis.
+
+### 22.2. Tạo dump và checksum
+
+```bash
+if kubectl -n urlshortener-eks exec postgres-0 -- \
+  sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' > "$DUMP"; then
+  test -s "$DUMP" && sha256sum "$DUMP" > "$DUMP.sha256"
+else
+  echo 'BACKUP FAILED: do not use this dump'
+fi
+ls -lh "$DUMP" "$DUMP.sha256"
+sha256sum --check "$DUMP.sha256"
+```
+
+Cần có file dump không rỗng, checksum báo OK và không có lỗi pg_dump. Nếu có lỗi thì dừng sửa, chưa restore. Checksum xác minh file không đổi, không tự chứng minh database restore dùng được. File backup nằm trên ổ VMware, bên ngoài cluster EKS. Không thêm `-t` vào exec vì dump là binary.
+
+### 22.3. Restore thử vào database mới
+
+Chạy tạo DB mới; chỉ đi tiếp nếu lệnh thành công:
+
+```bash
+kubectl -n urlshortener-eks exec postgres-0 -- \
+  sh -c 'createdb -U "$POSTGRES_USER" "$1"' sh "$RESTORE_DB"
+```
+
+Tên DB có timestamp để tránh đè database cũ. Không DROP database đang chạy. Restore file vừa tạo:
+
+```bash
+SECONDS=0
+if kubectl -n urlshortener-eks exec -i postgres-0 -- \
+  sh -c 'pg_restore -U "$POSTGRES_USER" -d "$1" --no-owner --exit-on-error' sh "$RESTORE_DB" \
+  < "$DUMP"; then
+  printf 'Restore database: %s\nElapsed seconds: %s\n' "$RESTORE_DB" "$SECONDS" \
+    | tee "docs/evidence/eks/restore-$STAMP.txt"
+else
+  echo 'RESTORE FAILED: inspect the error; do not mark PASS'
+fi
+```
+
+Database thật vẫn được app sử dụng như trước; DB restore chỉ dùng kiểm tra. Nếu lỗi thì đọc lỗi đầu tiên trước khi chạy lại; không restore lặp vào DB đã restore dở.
+
+### 22.4. Đối chiếu số dòng các bảng
+
+Tạo SQL kiểm tra trong thư mục riêng VMware:
+
+```bash
+cat > .lab/eks/backups/check-counts.sql <<'SQL'
+SELECT format('SELECT %L AS table_name, count(*) AS row_count FROM %I.%I;',
+              schemaname || '.' || tablename, schemaname, tablename)
+FROM pg_tables
+WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY schemaname, tablename;
+\gexec
+SQL
+```
+
+Chạy cùng SQL trên database gốc và bản restore, ghi kết quả không chứa dữ liệu hàng/mật khẩu:
+
+```bash
+kubectl -n urlshortener-eks exec -i postgres-0 -- \
+  sh -c 'psql -X -v ON_ERROR_STOP=1 -At -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < .lab/eks/backups/check-counts.sql > ".lab/eks/backups/source-counts-$STAMP.txt"
+kubectl -n urlshortener-eks exec -i postgres-0 -- \
+  sh -c 'psql -X -v ON_ERROR_STOP=1 -At -U "$POSTGRES_USER" -d "$1"' sh "$RESTORE_DB" \
+  < .lab/eks/backups/check-counts.sql > ".lab/eks/backups/restored-counts-$STAMP.txt"
+diff -u ".lab/eks/backups/source-counts-$STAMP.txt" ".lab/eks/backups/restored-counts-$STAMP.txt"
+```
+
+Chỉ so sánh khi cả hai lệnh psql thành công. Diff không in gì nghĩa số dòng các bảng khớp. Nếu app/Kafka vẫn ghi trong thời gian kiểm tra thì số dòng nguồn có thể thay đổi sau snapshot; khác biệt cần điều tra, chưa đủ kết luận dump hỏng. So sánh số dòng là kiểm tra cấu trúc/dữ liệu cơ bản; chưa chứng minh đầy đủ mọi giá trị hoặc nghiệp vụ của DB restore. Muốn chứng minh nghiệp vụ, cần bản app kiểm thử trỏ DB restore rồi smoke tương ứng; không đổi DB của app hiện tại trong bước này.
+
+### 22.5. Giữ bản backup ngoài VM nếu muốn dọn VM sau này
+
+Ngoài dump/checksum, giữ `.lab/eks/secrets.env` và `.lab/eks/smoke/.smoke.json` tương ứng ở nơi riêng tư; không đưa chúng lên Git. Chúng chứa password, chỉ sao lưu vào nơi bạn kiểm soát quyền truy cập.
+
+Có thể copy cả thư mục dữ liệu lab EKS bằng **PowerShell Windows**, nếu muốn một bản riêng ngoài VMware:
+
+```powershell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\Documents\urlshortener-private-backup" | Out-Null
+scp -r thanh@192.168.40.100:~/projects/url-shortener-infra/.lab/eks "$env:USERPROFILE\Documents\urlshortener-private-backup\"
+```
+
+Thay VMware IP nếu đã đổi. Thư mục này có thể gồm cả Docker GHCR login config; giữ riêng tư, không gửi lên chat/repo hay dùng làm evidence công khai. Backup PostgreSQL không chuyển Kafka pending events hoặc Redis JWT blacklist.
+
+### 22.6. Lưu bằng chứng và đánh dấu đúng phần đã hoàn thành
+
+**Quay lại terminal VMware**, repo infra:
+
+```bash
+kubectl --context urlshortener-eks get nodes -o wide > docs/evidence/eks/nodes.txt
+kubectl --context urlshortener-eks -n urlshortener-eks get pods,pvc,services -o wide \
+  > docs/evidence/eks/resources.txt
+helm history urlshortener -n urlshortener-eks > docs/evidence/eks/helm-history.txt
+```
+
+Mở UI qua port-forward, chạy smoke `run` trong `.lab/eks/smoke` với URL `http://127.0.0.1:18080`, chụp kết quả PASS. Smoke đó kiểm tra database đang chạy, không phải DB restore. Chưa làm rollback thì đánh dấu chưa làm; Helm history đơn thuần chưa chứng minh rollback. Giữ report chi phí và case AWS chặn NLB làm incident thực tế.
+
+Checklist dưới đây là danh sách bằng chứng cần có, không yêu cầu mọi mục phải PASS khi tài khoản chưa hỗ trợ. Với lab hiện tại, thay mục NLB UI bằng UI qua port-forward và ghi NLB/TLS chưa hoàn thành.
 
 | Bằng chứng | Kết quả phải đo/ghi thật |
 |---|---|

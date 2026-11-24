@@ -1,5 +1,7 @@
 # URL Shortener Infrastructure
 
+[Project portfolio / architecture, results and limitations](docs/PORTFOLIO.md)
+
 Repo chính thức cho cấu hình triển khai và vận hành URL Shortener: Ubuntu Server trên VMware trước, EC2 sau. Thư mục `devops-lab-kit` ở workspace cũ chỉ là bản mẫu, không cần copy nó sang VM.
 
 ## Cấu trúc
@@ -17,7 +19,8 @@ projects/
     │   └── aws-lab/     # AWS lab, state riêng
     ├── modules/         # GCP hiện có
     ├── bootstrap/
-    └── workflow-examples/
+    ├── charts/
+    └── .github/workflows/
 ```
 
 ## Cách làm việc
@@ -46,14 +49,14 @@ Chạy `init-env.sh` một lần, các lần sau sửa `.env` đang có. Không 
 
 | Giai đoạn | File |
 |---|---|
-| Chuẩn bị backend | `backend-examples/application-lab.yaml`, thay đổi Java theo implementation guide |
+| Chuẩn bị backend | Profile chính tại `url_shortener_be/src/main/resources/application-lab.yaml` trong repo backend |
 | Chạy VMware | `compose/compose.yml`, `compose/compose.vm.yml`, `compose/nginx.conf` |
 | Kiểm tra/deploy | `scripts/smoke.sh`, `deploy.sh`, `rollback.sh` |
-| CI ứng dụng | Copy mẫu backend/frontend từ `workflow-examples/` vào repo ứng dụng tương ứng |
+| CI ứng dụng | `.github/workflows/backend-ci.yml` trong repo backend và `.github/workflows/frontend-ci.yml` trong repo frontend |
 | Monitoring/benchmark | `monitoring/`, `load-tests/` |
 | Backup/restore | `scripts/backup.sh`, `restore.sh`, `compose/compose.restore.yml` |
 | AWS | `environments/aws-lab/`, `bootstrap/` |
-| CD AWS | Bật mẫu `workflow-examples/deploy-lab.yml` sau khi cấu hình Environment/OIDC/SSH |
+| CD AWS | `.github/workflows/deploy-lab.yml`; cấu hình Environment, IAM access keys và SSH trước khi Run workflow |
 | Kubernetes → EKS mức intern | [Guide đầy đủ](docs/kubernetes-eks-intern-guide.md), `charts/url-shortener/`, `k8s/eks/`, `scripts/k8s-lab-env.sh` |
 | kind bridge cũ | [Bài backend/frontend + data Compose](docs/kubernetes-vmware-guide.md), không chạy cùng namespace với chart mới |
 | Mở rộng vận hành | Backup S3 |

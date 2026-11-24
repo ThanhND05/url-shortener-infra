@@ -50,7 +50,7 @@ Workflow không upload `.env`, mật khẩu GHCR hay `.smoke.json`; chúng phả
 
 #### 11.2.2. Ghi lại thông tin AWS và tên repo infra
 
-**GitHub:** mở repo chứa `compose/`, `scripts/`, `workflow-examples/`. Đây là repo **infra**, không phải frontend/backend. Ghi chính xác `OWNER/REPO` trên URL, ví dụ `ThanhND05/url-shortener-infra` nếu đó là URL thật. Tên thư mục local chưa đủ để kết luận tên repo GitHub.
+**GitHub:** mở repo chứa `compose/`, `scripts/`, `.github/workflows/`. Đây là repo **infra**, không phải frontend/backend. Ghi chính xác `OWNER/REPO` trên URL, ví dụ `ThanhND05/url-shortener-infra` nếu đó là URL thật. Tên thư mục local chưa đủ để kết luận tên repo GitHub.
 
 **AWS Console:** ghi Account ID. Vào **EC2 → Instances → chọn instance lab → Security → bấm Security Group**. Lấy **Group ID**, không dùng tên group, VPC ID hay instance ID. Group ID ở phiên lab trước là `sg-0e31ccff000f7ac27`; kiểm tra lại nếu đã tạo lại hạ tầng.
 
@@ -193,13 +193,7 @@ New-Item -ItemType Directory -Force .github\workflows | Out-Null
 Test-Path .github\workflows\deploy-lab.yml
 ```
 
-Nếu kết quả `False`, copy mẫu:
-
-```powershell
-Copy-Item workflow-examples\deploy-lab.yml .github\workflows\deploy-lab.yml
-```
-
-Nếu `True`, review/so sánh file đang có với mẫu mới rồi cập nhật bước credentials sang IAM keys như 11.2.5, bỏ `role-to-assume` và `id-token: write`. Giữ các chỉnh sửa riêng cần thiết. File cần dùng Environment `aws-lab`, trigger `workflow_dispatch`, và hai input `backend_image`, `frontend_image`.
+File chuẩn đã có trong repo. Nếu kết quả False, kiểm tra branch đang dùng và đồng bộ repo đã có workflow; không cần tìm/copy mẫu nữa. Nếu True, mở `.github/workflows/deploy-lab.yml` trong IDE để review. File dùng Environment `aws-lab`, trigger `workflow_dispatch`, hai input `backend_image`, `frontend_image`, và IAM keys như 11.2.5.
 
 Review file trong IDE rồi commit riêng workflow:
 
@@ -212,7 +206,7 @@ git push
 
 Nếu đang ở nhánh làm việc, mở PR và merge vào `main` như bước 6. Workflow phải có trên branch mặc định `main` để hiện nút chạy. `compose/` và `scripts/` hiện tại cũng cần đã commit/push, vì runner lấy chúng từ GitHub.
 
-File trong `workflow-examples/` chỉ là mẫu; GitHub thực thi file trong `.github/workflows/`.
+GitHub thực thi workflow đã commit trong `.github/workflows/` của repo infra.
 
 #### 11.2.10. Chạy lần đầu bằng release hiện tại
 
