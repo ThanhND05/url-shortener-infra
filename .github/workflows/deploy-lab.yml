@@ -34,7 +34,7 @@ jobs:
           [[ "$BE_IMAGE" =~ $pattern && "$FE_IMAGE" =~ $pattern ]]
           printf 'BACKEND_IMAGE=%s\nFRONTEND_IMAGE=%s\n' "$BE_IMAGE" "$FE_IMAGE" > candidate.env
       - name: Configure AWS credentials from IAM user keys
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
