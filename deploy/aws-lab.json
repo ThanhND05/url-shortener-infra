@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "backend": {
+    "image": "ghcr.io/thanhnd05/url_shortener_be@sha256:208d87f1742b13acec245c1e228cc96201b993adf1f5017b5c01ebaf24a75823",
+    "commit": "7a83375e6aec8c323eb906d2484473a41496d599",
+    "repository": "ThanhND05/url_shortener_be",
+    "run_id": "45851697773",
+    "run_url": "https://github.com/ThanhND05/url_shortener_be/actions/runs/45851697773"
+  },
+  "frontend": {
+    "image": "ghcr.io/thanhnd05/url_shortener_fe@sha256:95fcb8d2408626e304e020715620335ffbbf19fed29571192cd6af7fe6f48545",
+    "commit": "bc6ecaba48fe1c6ac1748573b8cd4b6877f2c0de",
+    "repository": "ThanhND05/url_shortener_fe",
+    "run_id": "45851769208",
+    "run_url": "https://github.com/ThanhND05/url_shortener_fe/actions/runs/45851769208"
+  }
+}
