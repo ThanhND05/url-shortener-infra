@@ -1,0 +1,76 @@
+name: Infra Quality
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: infra-quality-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shell syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          find scripts bootstrap -type f -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
+      - name: Install Helm
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fLO https://get.helm.sh/helm-v4.0.0-linux-amd64.tar.gz
+          curl -fLO https://get.helm.sh/helm-v4.0.0-linux-amd64.tar.gz.sha256sum
+          sha256sum --check helm-v4.0.0-linux-amd64.tar.gz.sha256sum
+          tar -xzf helm-v4.0.0-linux-amd64.tar.gz
+          sudo install linux-amd64/helm /usr/local/bin/helm
+      - name: Lint and render chart
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p rendered
+          image="ghcr.io/example/lab@sha256:$(printf '0%.0s' {1..64})"
+          helm lint charts/url-shortener --strict --set-string backendImage="$image",frontendImage="$image"
+          for environment in kind eks; do
+            helm template urlshortener charts/url-shortener -n "urlshortener-$environment" \
+              -f "k8s/values-$environment.yaml" \
+              --set-string backendImage="$image",frontendImage="$image" \
+              --set 'frontend.sourceRanges[0]=203.0.113.10/32' > "rendered/$environment.yaml"
+          done
+          python3 -m venv /tmp/chart-venv
+          /tmp/chart-venv/bin/pip install PyYAML==6.0.2
+          /tmp/chart-venv/bin/python - <<'PY'
+          from pathlib import Path
+          import yaml
+          for path in Path('rendered').glob('*.yaml'):
+              docs = list(yaml.safe_load_all(path.read_text()))
+              assert docs and all(d and 'apiVersion' in d and 'kind' in d for d in docs), path
+              assert not any(d['kind'] == 'Secret' for d in docs), 'Do not render secret payloads'
+              print(f'PASS {path}: {len(docs)} objects')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rendered-chart
+          path: rendered/
+          retention-days: 7
+  terraform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        directory: [environments/aws-lab, environments/dev]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.10.5'
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -input=false
+        working-directory: ${{ matrix.directory }}
+      - run: terraform validate
+        working-directory: ${{ matrix.directory }}
